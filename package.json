@@ -1,0 +1,14 @@
+{
+  "name": "laby",
+  "version": "1.0.0",
+  "description": "labyrinth generation and such",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "args": "^5.0.1"
+  }
+}
