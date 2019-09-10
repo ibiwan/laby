@@ -30,31 +30,70 @@ const targetMoves = arms * circuits + 2;
 console.log({ arms, circuits, targetMoves });
 
 const nArray = [ ...Array(circuits) ];
-const entryEdge = { circuit: 0, side: LEFT, followed: false };
-const leftEdges = nArray.map((_, i) => ({ circuit: i + 1, side: LEFT, followed: false }));
-const rightEdges = nArray.map((_, i) => ({ circuit: circuits - i, side: RIGHT, followed: false }));
-const exitEdge = { circuit: circuits + 1, side: RIGHT, followed: false };
-
-const initialNodes = Array.from({ length: arms + 1 }, (_, arm) => ({
-  arm,
-  edges: [ ...(arm === 0 ? [ entryEdge ] : leftEdges), ...(arm === arms ? [ exitEdge ] : rightEdges) ],
+const templateEdge = {
+  circuit: null,
+  side: null,
+  followed: false,
+};
+const entryEdge = {
+  ...templateEdge,
+  circuit: 0,
+  side: LEFT,
+};
+const leftEdges = nArray.map((_, i) => ({
+  ...templateEdge,
+  circuit: i + 1,
+  side: LEFT,
 }));
+const rightEdges = nArray.map((_, i) => ({
+  ...templateEdge,
+  circuit: circuits - i,
+  side: RIGHT,
+}));
+const exitEdge = {
+  ...templateEdge,
+  circuit: circuits + 1,
+  side: RIGHT,
+};
+
+const initialNodes = Array.from({ length: arms + 1 }, (_, arm) => {
+  const left = arm === 0 ? [ entryEdge ] : leftEdges;
+  const right = arm === arms ? [ exitEdge ] : rightEdges;
+  return {
+    arm,
+    crossings: [],
+    edges: [ ...left, ...right ],
+  };
+});
+
+const pathsCross = (path1, path2) => {
+  const { arm:arm1, lo: lo1, hi: hi1 } = path1;
+  const { arm:arm2, lo: lo2, hi: hi2 } = path2;
+
+  if(arm1 !== arm2){
+    return false;
+  };
+
+  if (lo1 === lo2 || lo1 === hi2 || hi1 === lo2 || hi1 === hi2) {
+    return true;
+  }
+  const lo2between = lo1 < lo2 && lo2 < hi1;
+  const hi2between = lo1 < hi2 && hi2 < hi1;
+  if (lo2between !== hi2between) {
+    return true;
+  }
+
+  return false;
+};
 
 const cloneNodes = nodes => {
-  const newNodes = [];
-  for (let node of nodes) {
-    const { arm, edges } = node;
-    const newEdges = edges.map(edge => ({ ...edge }));
-    const newNode = { arm, edges: newEdges };
-    newNodes.push(newNode);
-  }
-  return newNodes;
+  return nodes.map(({ arm, edges }) => ({ arm, edges: edges.map(edge => ({ ...edge })) }));
 };
 
 let globalPathId = 0;
 const candidatePaths = [];
-const takenPaths = [];
-const forbiddenMoves = [];
+// const takenPaths = [];
+// const forbiddenMoves = [];
 const completedPaths = [];
 
 const initialPath = {
@@ -64,28 +103,28 @@ const initialPath = {
   circuit: 0,
   move: RIGHT,
   taken: [],
-  // taken: '',
   nodes: initialNodes,
+  crossings: [],
 };
 candidatePaths.push(initialPath);
 
-// dumpNodes({ candidatePaths });
-
 while (candidatePaths.length > 0) {
+  // #region extract move info from queue
   const path = candidatePaths.pop();
-  takenPaths.push(path);
-  // console.log('.');
+  // takenPaths.push(path);
 
-  const { pathId, arm, circuit, move, nodes } = path;
-  // const taken = `${path.taken},${move * circuit}`;
+  const { pathId, arm: oldArm, circuit, move, nodes, crossings } = path;
   let taken = [ ...path.taken, move * circuit ];
 
-  const nextArm = arm + move;
+  // console.log({ oldArm, circuit, move, taken: taken.join(',') });
+  // #endregion
 
-  if (nextArm === arms + 1) {
+  // #region compute new location
+  const currentArm = oldArm + move;
+
+  if (currentArm === arms + 1) {
     if (taken.length === targetMoves) {
       completedPaths.push(path);
-      // console.log(1);
       continue;
     }
 
@@ -94,62 +133,77 @@ while (candidatePaths.length > 0) {
       move,
       reason: 'early completion',
     };
-    forbiddenMoves.push(forbidden);
-    // console.log(2);
+    // forbiddenMoves.push(forbidden);
     continue;
   }
 
-  const nextNode = nodes[nextArm];
+  let currentNode = nodes[currentArm];
+  // #endregion
 
-  if (nextNode === undefined) {
-    const forbidden = {
-      path,
-      move,
-      reason: 'no node (arm) in that direction',
-    };
-    forbiddenMoves.push(forbidden);
-    // console.log(3);
-    continue;
-  }
-
-  const nextEdgeIdx = nextNode.edges.findIndex(
+  // #region check for invalid source for last move
+  const arrivalEdgeDestIdx = currentNode.edges.findIndex(
     edge => edge.circuit === circuit && edge.side === pairOf(move) && edge.followed === false,
   );
-
-  if (nextEdgeIdx === -1) {
+  if (arrivalEdgeDestIdx === -1) {
     const forbidden = {
       path,
       move,
-      reason: 'destination edge unavailable',
+      reason: 'arrival edge unavailable',
     };
-    forbiddenMoves.push(forbidden);
-    // console.log(4);
+    // forbiddenMoves.push(forbidden);
     continue;
   }
+  // #endregion
 
+  // #region update nodes to indicate paths followed
   const newNodes = cloneNodes(nodes);
-  newNodes[nextArm].edges[nextEdgeIdx].followed = true;
+  currentNode = newNodes[currentArm]; // update currentNode reference too
 
-  const thisArm = nodes[arm];
-  if (thisArm !== undefined) {
-    const thisEdgeIdx = thisArm.edges.findIndex(edge => edge.circuit === circuit && edge.side === move);
-    newNodes[arm].edges[thisEdgeIdx].followed = true;
+  currentNode.edges[arrivalEdgeDestIdx].followed = true;
+
+  const oldNode = nodes[oldArm];
+  if (oldNode !== undefined) {
+    const arrivalEdgeSourceIdx = oldNode.edges.findIndex(edge => edge.circuit === circuit && edge.side === move);
+    newNodes[oldArm].edges[arrivalEdgeSourceIdx].followed = true;
   }
+  // #endregion
 
-  for (let { circuit: nextCircuit, side: nextMove } of newNodes[nextArm].edges.filter(edge => !edge.followed)) {
+  // #region generate possible next moves
+  const departureEdges = currentNode.edges;
+  departureEdges.forEach((departureEdge, departureEdgeSrcIdx) => {
+    const { circuit: nextCircuit, side: nextMove, followed } = departureEdge;
+    if (followed) {
+      return;
+    }
+
+    // #region check crossings rule
+    const newCrossing = {
+      arm: currentArm,
+      lo: Math.min(arrivalEdgeDestIdx, departureEdgeSrcIdx),
+      hi: Math.max(arrivalEdgeDestIdx, departureEdgeSrcIdx),
+    };
+
+    for (oldCrossing of crossings) {
+      if (pathsCross(oldCrossing, newCrossing)) {
+        return;
+      }
+    }
+    // #endregion
+
     const nextPath = {
       pathId: globalPathId++,
       parentPathId: pathId,
       move: nextMove,
-      arm: nextArm,
+      arm: currentArm,
       circuit: nextCircuit,
       taken,
       nodes: newNodes,
+      crossings: [...crossings, newCrossing],
     };
-
+    // console.log({nextCircuit, nextMove})
     candidatePaths.push(nextPath);
-    // console.log(5);
-  }
+  });
+  // #endregion
 }
 
 dumpNodes({
@@ -157,4 +211,5 @@ dumpNodes({
   // takenPaths,
   // forbiddenMoves: forbiddenMoves.filter(move=>move.reason!=='early completion'),
   completedPaths: completedPaths.map(path => path.taken.join(',')),
+  count: completedPaths.length,
 });
