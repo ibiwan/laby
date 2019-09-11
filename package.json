@@ -4,11 +4,13 @@
   "description": "labyrinth generation and such",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "start-many": "node director.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "args": "^5.0.1"
+    "args": "^5.0.1",
+    "workerpool": "^5.0.0"
   }
 }
